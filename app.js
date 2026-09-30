@@ -227,7 +227,7 @@
   let questionIndex = 0;
   const answers = [];
   const surface = $('#quizSurface');
-  const quizRefs = [1, 4, 5, 6, 9, 19, null, 6, 16, null];
+  const quizRefs = [1, 4, 5, 6, 9, 19, 15, 6, 16, null];
   function updateQuizDots() {
     $('#quizDots').innerHTML = data.quiz.map((q, i) => `<span class="quiz-dot ${i === questionIndex && i >= answers.length ? 'current' : ''} ${answers[i] !== undefined ? (answers[i] === q[2] ? 'correct' : 'wrong') : ''}" title="Вопрос ${i + 1}${answers[i] !== undefined ? (answers[i] === q[2] ? ': верно' : ': неверно') : ''}"></span>`).join('');
     $('#quizIndex').textContent = String(Math.min(questionIndex + 1, 10)).padStart(2, '0');
