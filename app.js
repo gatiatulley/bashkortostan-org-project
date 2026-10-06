@@ -4,6 +4,7 @@
   const $ = (selector, scope = document) => scope.querySelector(selector);
   const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
   const data = window.BASH_DATA;
+  let routeReady = false;
   if (!data) return;
   document.body.classList.add('js');
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -112,6 +113,10 @@
     if (target.classList.contains('chapter')) {
       search.value = ''; searchChapters(); target.open = true;
     }
+    if (target.classList.contains('route-stop')) {
+      target.open = true;
+      if (routeReady) { routeFilter = 'all'; applyRouteFilter(); selectPlace(Number(target.dataset.routeStop)); }
+    }
     let parent = target.parentElement;
     while (parent) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentElement; }
     if (scroll) requestAnimationFrame(() => target.scrollIntoView({ behavior: motion ? 'smooth' : 'auto', block: 'start' }));
@@ -200,20 +205,72 @@
     animatePanel(panel);
   });
 
+  let selectedPlace = 0;
+  let mapMode = 'route';
+  let routeFilter = 'all';
+  let mapZoom = 1;
+  const map = $('.region-map');
   function selectPlace(index) {
     const p = data.places[index]; if (!p) return;
+    selectedPlace = index;
     $$('[data-place]').forEach(el => { const selected = Number(el.dataset.place) === index; el.classList.toggle('selected', selected); el.setAttribute('aria-pressed', String(selected)); });
     const card = $('#placeCard');
-    card.innerHTML = `<span class="eyebrow">${p.tag}</span><h3>${p.name}</h3><p>${p.text}</p><div class="place-meaning"><span>ПОЧЕМУ ЭТО ВАЖНО</span><p>${p.why}</p></div><a class="place-source" href="#source-${p.source}">Источник [${String(p.source).padStart(2, '0')}]</a><a class="text-link chapter-link" href="#chapter-${p.chapter}">Продолжить изучение <span>+</span></a>`;
+    card.innerHTML = `<img class="place-preview" src="assets/${p.photo}.webp" alt="${p.name}" width="420" height="230"><span class="eyebrow">${p.number} / ${p.tag}</span><h3>${p.name}</h3><p>${p.text}</p><a class="text-link" href="#stop-${index+1}">Подробнее об остановке <span>→</span></a>`;
+    $('#routeProgressLabel').textContent = `Остановка ${index+1} из ${data.places.length}`;
+    $('#routeProgressDots').innerHTML = data.places.map((_,i)=>`<span class="${i===index?'current':''}"></span>`).join('');
+    $('#openActiveStop').href = `#stop-${index+1}`;
+    $$('.route-stop').forEach(el=>el.classList.toggle('active-stop',Number(el.dataset.routeStop)===index));
+    if (mapZoom>1) setMapZoom(mapZoom);
     animatePanel(card);
   }
-  $$('[data-place]').forEach(el => {
-    el.addEventListener('click', () => selectPlace(Number(el.dataset.place)));
-    if (el.tagName.toLowerCase() === 'g') el.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPlace(Number(el.dataset.place)); }
+  function applyRouteFilter() {
+    const matching = data.places.map(p=>routeFilter==='all'||p.tags.includes(routeFilter));
+    $$('[data-place]').forEach(el=>{
+      const visible=matching[Number(el.dataset.place)];
+      if (el.tagName.toLowerCase()==='g') { el.style.display=visible?'':'none'; el.setAttribute('aria-hidden',String(!visible)); el.tabIndex=visible?0:-1; }
+      else el.hidden=!visible;
     });
+    $$('[data-map-location]').forEach(el=>el.style.display=matching[Number(el.dataset.mapLocation)]?'':'none');
+    $$('[data-route-filter]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.routeFilter===routeFilter)));
+    if (!matching[selectedPlace]) selectPlace(matching.indexOf(true));
+  }
+  function setMapMode(mode) {
+    mapMode=mode;
+    $$('[data-map-mode]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.mapMode===mode)));
+    $('#routeLine').style.display=mode==='route'?'':'none';
+    $('.route-section').classList.toggle('atlas-mode',mode==='atlas');
+    $('#mapModeHint').textContent=mode==='route'?'Маршрут: изучайте остановки по порядку или выберите любую точку. Тематические фильтры доступны в режиме «Атлас».':'Атлас: выбирайте места свободно. Фильтры меняют точки на карте и список; все описания остаются ниже.';
+    $$('[data-route-filter]').forEach(el=>el.disabled=mode==='route'&&el.dataset.routeFilter!=='all');
+    routeFilter='all';applyRouteFilter();
+  }
+  function setMapZoom(value) {
+    mapZoom=Math.max(1,Math.min(3,value));
+    if(mapZoom===1)map.setAttribute('viewBox','0 0 680 630');
+    else {
+      const pin=$(`.map-pin[data-place="${selectedPlace}"]`);
+      const [x,y]=pin.getAttribute('transform').match(/[\d.]+/g).map(Number);
+      const width=680/mapZoom,height=630/mapZoom;
+      map.setAttribute('viewBox',`${Math.max(0,Math.min(680-width,x-width/2))} ${Math.max(0,Math.min(630-height,y-height/2))} ${width} ${height}`);
+    }
+    $('#mapZoomIn').disabled=mapZoom>=3;$('#mapZoomOut').disabled=mapZoom<=1;
+  }
+  $$('[data-place]').forEach(el=>{
+    el.addEventListener('click',()=>selectPlace(Number(el.dataset.place)));
+    if(el.tagName.toLowerCase()==='g')el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectPlace(Number(el.dataset.place));}});
   });
-  selectPlace(0);
+  $$('.route-stop').forEach(el=>el.addEventListener('toggle',()=>{if(el.open)selectPlace(Number(el.dataset.routeStop));}));
+  $$('[data-map-mode]').forEach(el=>el.addEventListener('click',()=>setMapMode(el.dataset.mapMode)));
+  $$('[data-route-filter]').forEach(el=>el.addEventListener('click',()=>{routeFilter=el.dataset.routeFilter;applyRouteFilter();}));
+  $('#mapZoomIn').addEventListener('click',()=>setMapZoom(mapZoom+.5));
+  $('#mapZoomOut').addEventListener('click',()=>setMapZoom(mapZoom-.5));
+  $('#mapReset').addEventListener('click',()=>setMapZoom(1));
+  $$('[data-route-finish]').forEach(el=>el.addEventListener('click',()=>{
+    $('#routeConclusion').classList.add('route-finished');
+    $('#routeProgressLabel').textContent='Маршрут завершён · 10 остановок';
+  }));
+  routeReady=true;
+  const initialStop=location.hash.match(/^#stop-(\d+)$/);
+  selectPlace(initialStop?Number(initialStop[1])-1:0);setMapZoom(1);
 
   const imageDialog = $('#imageDialog');
   $('#replicaOpen').addEventListener('click', () => {
@@ -227,7 +284,7 @@
   let questionIndex = 0;
   const answers = [];
   const surface = $('#quizSurface');
-  const quizRefs = [1, 4, 5, 6, 9, 19, 15, 6, 16, null];
+  const quizRefs = data.quizRefs;
   function updateQuizDots() {
     $('#quizDots').innerHTML = data.quiz.map((q, i) => `<span class="quiz-dot ${i === questionIndex && i >= answers.length ? 'current' : ''} ${answers[i] !== undefined ? (answers[i] === q[2] ? 'correct' : 'wrong') : ''}" title="Вопрос ${i + 1}${answers[i] !== undefined ? (answers[i] === q[2] ? ': верно' : ': неверно') : ''}"></span>`).join('');
     $('#quizIndex').textContent = String(Math.min(questionIndex + 1, 10)).padStart(2, '0');
